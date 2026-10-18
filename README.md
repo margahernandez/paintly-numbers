@@ -54,4 +54,4 @@ There's no build step and nothing to install. The whole app is one file, so just
 
 ## About
 
-Designed and built by Marga Hernandez as a portfolio project. More work at [margahernandez.framer.ai](https://margahernandez.framer.ai).
+Designed and built by Marga Hernandez with the help of Claude AI. More work at [margahernandez.framer.ai](https://margahernandez.framer.ai).
