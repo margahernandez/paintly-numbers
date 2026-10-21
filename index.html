@@ -1455,8 +1455,19 @@ function show(screen) {
 // The outlined artwork and its reference photo live in one saved item, so either can be deleted on its own:
 // deleting the artwork keeps its photo under Referenced Photo, deleting the photo keeps the artwork.
 // The item is removed for good once both are gone.
-const shownIn = tab => arts.filter(a => tab === 'outline' ? !a.noArt : !a.noRef);
+// Several artworks can come from the same photo, but Referenced Photo shows each photo once, under the first
+// artwork made from it.
+function shownIn(tab) {
+  if (tab === 'outline') return arts.filter(a => !a.noArt);
+  const first = new Map();
+  for (let i = arts.length - 1; i >= 0; i--) { const a = arts[i]; if (!a.noRef && !first.has(a.photo)) first.set(a.photo, a); }
+  return arts.filter(a => first.get(a.photo) === a);
+}
 function deleteFromLibrary(ids, tab) {
+  if (tab !== 'outline') {                                   // deleting a photo removes it for every artwork made from it
+    const photos = new Set(arts.filter(a => ids.has(a.id)).map(a => a.photo));
+    ids = new Set(arts.filter(a => photos.has(a.photo)).map(a => a.id));
+  }
   arts = arts.filter(a => {
     if (!ids.has(a.id)) return true;
     if (tab === 'outline') { if (a.noRef) return false; a.noArt = true; delete a.draft; return true; }
@@ -1508,10 +1519,16 @@ function renderDash() {
       b.addEventListener('click', () => { if (a.draft) { delete a.draft; persist(); } openArt(a); });
     } else {
       b.setAttribute('aria-label', 'Start a new artwork from ' + a.title);
-      b.addEventListener('click', () => startConfig(a.photo, a.title.replace(/ \(sample\)$/, '') + ' copy'));
+      b.addEventListener('click', () => startConfig(a.photo, copyName(a.title)));
     }
     b.append(th, meta); grid.append(b);
   });
+}
+// "Lake copy", then "Lake copy 2", and so on, so artworks from the same photo are easy to tell apart.
+function copyName(title) {
+  const base = title.replace(/ \(sample\)$/, '') + ' copy', taken = new Set(arts.filter(a => !a.noArt).map(a => a.title));
+  let name = base, n = 2; while (taken.has(name)) name = base + ' ' + n++;
+  return name;
 }
 const endSelect = () => { ui.sel = null; ui.selArm = false; };
 $('selbtn').addEventListener('click', () => { if (ui.sel) endSelect(); else { ui.sel = new Set(); ui.selArm = false; ui.adding = false; } renderDash(); });
