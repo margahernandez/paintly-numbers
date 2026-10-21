@@ -557,12 +557,22 @@ for (const a of PART_V) for (const b of PART_V) for (const c of PART_V) if (part
 // Up to FULL_PALETTE paints every three-paint mix is kept; bigger palettes keep three-paint mixes of the paints
 // that come closest for each color.
 const FULL_PALETTE = 30, TRIPLE_POOL = 12;
-function mixStore(paints, combos) {
+// Gouache looks different once it dries: light mixes dry a little darker, dark mixes a little lighter, the matte
+// surface dulls colors slightly, and white makes tints chalky. For a gouache palette every mix is judged by how it
+// looks dry, so the recipe you mix wet dries to the color in the photo.
+const GOUACHE_SHIFT = 0.07, GOUACHE_MATTE = 0.96, GOUACHE_CHALK = 0.15;
+function gouacheDry(lab, white) {
+  const L = lab[0] + GOUACHE_SHIFT * (50 - lab[0]), c = GOUACHE_MATTE * (1 - GOUACHE_CHALK * white);
+  return [L, lab[1] * c, lab[2] * c];
+}
+function mixStore(paints, combos, gouache) {
   let n = 0; for (const c of combos) n += c[1].length;
   const st = { n, L: new Float64Array(n), A: new Float64Array(n), B: new Float64Array(n), pen: new Float64Array(n), ids: new Uint8Array(n * 3), parts: new Float64Array(n * 3), cnt: new Uint8Array(n) };
   let k = 0;
   for (const [ids, partsList] of combos) for (const parts of partsList) {
-    const lin = mixLin(paints, ids, parts), lab = lin2lab(lin[0], lin[1], lin[2]); let tot = 0; for (const p of parts) tot += p;
+    const lin = mixLin(paints, ids, parts); let lab = lin2lab(lin[0], lin[1], lin[2]), tot = 0, wt = 0;
+    for (let t = 0; t < parts.length; t++) { tot += parts[t]; if (paints[ids[t]].S > 1) wt += parts[t]; }
+    if (gouache) lab = gouacheDry(lab, wt / tot);
     st.L[k] = lab[0]; st.A[k] = lab[1]; st.B[k] = lab[2]; st.pen[k] = 1.5 * (ids.length - 1) + 0.15 * tot; st.cnt[k] = ids.length;
     for (let t = 0; t < ids.length; t++) { st.ids[k * 3 + t] = ids[t]; st.parts[k * 3 + t] = parts[t]; }
     k++;
@@ -580,7 +590,7 @@ function candidates(pal) {
   for (let i = 0; i < n; i++) combos.push([[i], [[1]]]);
   for (let i = 0; i < n; i++) for (let j = i + 1; j < n; j++) combos.push([[i, j], MIX2]);
   if (n <= FULL_PALETTE) { const all = []; for (let i = 0; i < n; i++) all.push(i); combos.push(...tripleCombos(all)); }
-  return (pal.cands = mixStore(pal.paints, combos));
+  return (pal.cands = mixStore(pal.paints, combos, pal.gouache));
 }
 // Finds the mix with the best balance of closeness and simplicity. The distance is only worked out exactly for
 // mixes that could still win, which gives the same answer as checking every mix in full.
@@ -612,13 +622,13 @@ function bestRecipe(lab, pal) {
     want(pal.paints.findIndex(p => p.S > 1));
     let dk = -1, dl = 101; pal.paints.forEach((p, i) => { const l = hexLab(p.h)[0]; if (l < dl) { dl = l; dk = i; } }); want(dk);
     pool.sort((x, y) => x - y);
-    scan(mixStore(pal.paints, tripleCombos(pool)), lab, best);
+    scan(mixStore(pal.paints, tripleCombos(pool), pal.gouache), lab, best);
   }
   const st = best.st, k = best.k, ids = [], parts = [];
   for (let t = 0; t < st.cnt[k]; t++) { ids.push(st.ids[k * 3 + t]); parts.push(st.parts[k * 3 + t]); }
   const lin = mixLin(pal.paints, ids, parts), cand = { ids, parts, lin, lab: [st.L[k], st.A[k], st.B[k]], pen: st.pen[k] };
   const items = ids.map((id, i) => ({ paint: pal.paints[id], parts: parts[i] })).sort((a, b) => b.parts - a.parts);
-  return { items, rgb: lin.map(l2s), dE: best.d, cand, key: ids.join('.') + ':' + parts.join('.') };
+  return { items, rgb: pal.gouache ? lab2rgb(cand.lab[0], cand.lab[1], cand.lab[2]) : lin.map(l2s), dE: best.d, cand, key: ids.join('.') + ':' + parts.join('.') };
 }
 // Two colors this close once mixed look the same on paper, so they share one number.
 const MIX_SAME = 4;
@@ -1390,7 +1400,9 @@ let myPaints = [];                           // [{ n, h, b }] — empty means th
 let myPal = BASE;
 function usePaints(list) {
   myPaints = list;
-  myPal = list.length ? { paints: list.map(p => prepPaint({ n: p.n, h: p.h, b: p.b || '' })), cands: null } : BASE;
+  // A list that is mostly gouache (from the gouache sets) is mixed as gouache.
+  const gouache = list.filter(p => /gouache/i.test(p.b || '')).length * 2 > list.length;
+  myPal = list.length ? { paints: list.map(p => prepPaint({ n: p.n, h: p.h, b: p.b || '' })), cands: null, gouache } : BASE;
 }
 function savePaints() { try { localStorage.setItem(PAINTS_KEY, JSON.stringify(myPaints)); return true; } catch (e) { return false; } }
 try { const saved = JSON.parse(localStorage.getItem(PAINTS_KEY) || 'null'); if (Array.isArray(saved)) usePaints(saved.filter(p => p && typeof p.n === 'string' && /^#[0-9A-Fa-f]{6}$/.test(p.h))); } catch (e) {}
